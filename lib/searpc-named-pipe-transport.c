@@ -6,7 +6,7 @@
 #if !defined(WIN32)
   #include <sys/types.h>
   #include <sys/socket.h>
-  #include <sys/un.h>
+  #include <arpa/inet.h>
   #include <unistd.h>
 #endif // !defined(WIN32)
 
@@ -109,47 +109,34 @@ SearpcNamedPipeServer* searpc_create_named_pipe_server_with_threadpool (const ch
 int searpc_named_pipe_server_start(SearpcNamedPipeServer *server)
 {
 #if !defined(WIN32)
-    int pipe_fd = socket (AF_UNIX, SOCK_STREAM, 0);
-    const char *un_path = server->path;
+    int pipe_fd = socket (AF_INET, SOCK_STREAM, 0);
     if (pipe_fd < 0) {
         g_warning ("Failed to create unix socket fd : %s\n",
                    strerror(errno));
         return -1;
     }
 
-    struct sockaddr_un saddr;
-    saddr.sun_family = AF_UNIX;
+    struct sockaddr_in saddr;
+    saddr.sin_family = AF_INET;
+    saddr.sin_addr.s_addr = INADDR_ANY;
+    saddr.sin_port = htons(8083);
 
-    if (strlen(server->path) > sizeof(saddr.sun_path)-1) {
-        g_warning ("Unix socket path %s is too long."
-                       "Please set or modify UNIX_SOCKET option in ccnet.conf.\n",
-                       un_path);
-        goto failed;
+    int opt = 1;
+
+    if (setsockopt(pipe_fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(opt))) {
+        perror("setsockopt");
+        exit(EXIT_FAILURE);
     }
 
-    if (g_file_test (un_path, G_FILE_TEST_EXISTS)) {
-        g_message ("socket file exists, delete it anyway\n");
-        if (g_unlink (un_path) < 0) {
-            g_warning ("delete socket file failed : %s\n", strerror(errno));
-            goto failed;
-        }
-    }
-
-    g_strlcpy (saddr.sun_path, un_path, sizeof(saddr.sun_path));
-    if (bind(pipe_fd, (struct sockaddr *)&saddr, sizeof(saddr)) < 0) {
-        g_warning ("failed to bind unix socket fd to %s : %s\n",
-                      un_path, strerror(errno));
-        goto failed;
+    if (bind(pipe_fd, (struct sockaddr*)&saddr,
+             sizeof(saddr))
+        < 0) {
+        perror("bind failed");
+        exit(EXIT_FAILURE);
     }
 
     if (listen(pipe_fd, 10) < 0) {
         g_warning ("failed to listen to unix socket: %s\n", strerror(errno));
-        goto failed;
-    }
-
-    if (chmod(un_path, 0700) < 0) {
-        g_warning ("failed to set permisson for unix socket %s: %s\n",
-                      un_path, strerror(errno));
         goto failed;
     }
 
@@ -326,11 +313,16 @@ static void named_pipe_client_handler(void *data)
 int searpc_named_pipe_client_connect(SearpcNamedPipeClient *client)
 {
 #if !defined(WIN32)
-    client->pipe_fd = socket(AF_UNIX, SOCK_STREAM, 0);
-    struct sockaddr_un servaddr;
-    servaddr.sun_family = AF_UNIX;
+    client->pipe_fd = socket(AF_INET, SOCK_STREAM, 0);
+    struct sockaddr_in servaddr;
+    servaddr.sin_family = AF_INET;
 
-    g_strlcpy (servaddr.sun_path, client->path, sizeof(servaddr.sun_path));
+    if (inet_pton(AF_INET, "127.0.0.1", &servaddr.sin_addr) <= 0) {
+        printf(
+            "\nInvalid address/ Address not supported \n");
+        return -1;
+    }
+
     if (connect(client->pipe_fd, (struct sockaddr *)&servaddr, (socklen_t)sizeof(servaddr)) < 0) {
         g_warning ("pipe client failed to connect to server: %s\n", strerror(errno));
         return -1;

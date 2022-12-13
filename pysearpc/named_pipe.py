@@ -40,8 +40,8 @@ class NamedPipeTransport(SearpcTransport):
         self.pipe = None
 
     def connect(self):
-        self.pipe = socket.socket(socket.AF_UNIX)
-        self.pipe.connect(self.socket_path)
+        self.pipe = socket.socket(socket.AF_INET)
+        self.pipe.connect(("yartu-drive", 8083))
 
     def stop(self):
         if self.pipe:
@@ -127,9 +127,9 @@ class NamedPipeServer(object):
                     'Failed to remove existing unix socket {}'.
                     format(self.socket_path)
                 )
-        self.pipe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM, 0)
+        self.pipe = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
         make_socket_closeonexec(self.pipe)
-        self.pipe.bind(self.socket_path)
+        self.pipe.bind(('', 8083))
         self.pipe.listen(10)
         logger.info('Server now listening at %s', self.socket_path)
 
